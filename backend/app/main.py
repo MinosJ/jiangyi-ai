@@ -1,3 +1,7 @@
+import asyncio
+import os
+
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
@@ -5,13 +9,27 @@ from app.routers import chat, ingest
 
 settings = get_settings()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from app.services.rag import get_collection
+    collection = get_collection()
+    if collection.count() == 0:
+        print("[startup] Knowledge base empty, auto-ingesting...")
+        from app.services.ingest import ingest_all_data
+        count = await ingest_all_data()
+        print(f"[startup] Ingested {count} chunks")
+    else:
+        print(f"[startup] Knowledge base has {collection.count()} chunks")
+    yield
+
+
 app = FastAPI(
     title="蒋毅 AI 数字分身",
     description="基于 RAG 的个人 AI 网站后端",
     version="1.0.0",
+    lifespan=lifespan,
 )
-
-import os
 
 allowed_origins = [
     "http://localhost:3000",
