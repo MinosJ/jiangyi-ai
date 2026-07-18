@@ -13,6 +13,12 @@ COPY . .
 
 RUN mkdir -p chroma_db data/chat_records
 
-EXPOSE 8000
+RUN useradd -m -u 1000 user
+USER user
+ENV HOME=/home/user PATH="/home/user/.local/bin:$PATH"
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+WORKDIR /app
+
+EXPOSE 7860
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"]
