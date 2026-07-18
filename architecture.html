@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>蒋毅 AI 数字分身 - 架构分析</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0a0a0f; color: #e4e4e7; line-height: 1.7; }
+  .container { max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; background: linear-gradient(135deg, #818cf8, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .subtitle { color: #71717a; margin-bottom: 48px; font-size: 15px; }
+  h2 { font-size: 22px; font-weight: 600; margin: 48px 0 16px; color: #e4e4e7; padding-bottom: 8px; border-bottom: 1px solid #27272a; }
+  h3 { font-size: 17px; font-weight: 600; margin: 28px 0 10px; color: #818cf8; }
+  h4 { font-size: 15px; font-weight: 600; margin: 20px 0 8px; color: #a5b4fc; }
+  p { margin: 8px 0; color: #a1a1aa; font-size: 14.5px; }
+  ul, ol { margin: 8px 0 8px 20px; color: #a1a1aa; font-size: 14.5px; }
+  li { margin: 4px 0; }
+  strong { color: #e4e4e7; }
+  code { background: #18181b; color: #818cf8; padding: 2px 6px; border-radius: 4px; font-size: 13px; font-family: 'SF Mono', 'Fira Code', monospace; border: 1px solid #27272a; }
+  pre { background: #111116; border: 1px solid #27272a; border-radius: 10px; padding: 16px; overflow-x: auto; margin: 12px 0; }
+  pre code { background: none; border: none; padding: 0; color: #c4b5fd; font-size: 12.5px; line-height: 1.6; }
+  .card { background: #13131a; border: 1px solid #27272a; border-radius: 12px; padding: 20px 24px; margin: 16px 0; }
+  .card-accent { border-left: 3px solid #6366f1; }
+  .tag { display: inline-block; background: #1e1b4b; color: #818cf8; padding: 2px 10px; border-radius: 20px; font-size: 12px; margin: 2px 4px 2px 0; }
+  .tag-green { background: #052e16; color: #4ade80; }
+  .tag-amber { background: #451a03; color: #fbbf24; }
+  .tag-rose { background: #4c0519; color: #fb7185; }
+  .flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 12px 0; font-size: 13px; }
+  .flow-step { background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 6px 14px; color: #a1a1aa; }
+  .flow-arrow { color: #6366f1; font-weight: bold; font-size: 16px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 640px) { .grid-2 { grid-template-columns: 1fr; } }
+  .diagram { background: #111116; border: 1px solid #27272a; border-radius: 12px; padding: 24px; margin: 20px 0; font-family: monospace; font-size: 13px; line-height: 1.5; color: #818cf8; overflow-x: auto; white-space: pre; }
+  .section-num { color: #6366f1; font-weight: 700; margin-right: 8px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13.5px; }
+  th { background: #18181b; color: #a5b4fc; text-align: left; padding: 10px 14px; border-bottom: 1px solid #27272a; }
+  td { padding: 8px 14px; border-bottom: 1px solid #1e1e24; color: #a1a1aa; }
+  .compare { color: #71717a; font-size: 13px; }
+  .compare strong { color: #818cf8; }
+  .tip { background: #1a1a2e; border: 1px solid #312e81; border-radius: 10px; padding: 14px 18px; margin: 16px 0; font-size: 13.5px; color: #c4b5fd; }
+  .tip::before { content: "💡 "; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>蒋毅 AI 数字分身 — 全栈架构解析</h1>
+<p class="subtitle">从前端工程师的角度理解这个 RAG 驱动的 AI 网站是怎么跑起来的</p>
+
+<!-- ====== 1. 全局概览 ====== -->
+<h2><span class="section-num">01</span>全局架构概览</h2>
+
+<div class="diagram">┌─────────────────────────────────────────────────────────────────┐
+│                        用户浏览器                               │
+│   访问 Vercel 域名  ──→  Next.js SSR/SSG 页面                   │
+│   点击"开始对话"    ──→  /chat 页面 (CSR)                       │
+└────────────────────────────┬────────────────────────────────────┘
+                             │  HTTP POST /api/chat
+                             │  SSE (Server-Sent Events) 流式响应
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    FastAPI 后端 (Python)                         │
+│                                                                 │
+│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌─────────────┐ │
+│  │ 路由层    │──→│ RAG 检索  │──→│ LLM 调用  │──→│ SSE 流式返回│ │
+│  │ chat.py  │   │ rag.py   │   │ llm.py   │   │             │ │
+│  └──────────┘   └────┬─────┘   └────┬─────┘   └─────────────┘ │
+│                      │              │                           │
+│                      ▼              ▼                           │
+│              ┌──────────────┐ ┌──────────────┐                  │
+│              │  ChromaDB    │ │  DeepSeek    │                  │
+│              │  向量数据库   │ │  云端 API    │                  │
+│              │  (本地文件)   │ │  (大语言模型) │                  │
+│              └──────┬───────┘ └──────────────┘                  │
+│                     │                                           │
+│              ┌──────────────┐                                   │
+│              │ BGE Embedding│                                   │
+│              │ 本地模型      │                                   │
+│              │ (向量化)      │                                   │
+│              └──────────────┘                                   │
+└─────────────────────────────────────────────────────────────────┘</div>
+
+<p>整个项目是经典的<strong>前后端分离</strong>架构：前端负责 UI 渲染和用户交互，后端负责 AI 推理和数据检索。两者通过 HTTP API 通信，部署在不同平台上。</p>
+
+<!-- ====== 2. 前端 ====== -->
+<h2><span class="section-num">02</span>前端架构（你熟悉的部分）</h2>
+
+<h3>技术栈</h3>
+<div>
+  <span class="tag">Next.js 16</span>
+  <span class="tag">React 19</span>
+  <span class="tag">TypeScript</span>
+  <span class="tag">Tailwind CSS 4</span>
+  <span class="tag">Framer Motion</span>
+  <span class="tag">react-markdown</span>
+  <span class="tag">rehype-highlight</span>
+</div>
+
+<h3>页面结构</h3>
+<div class="grid-2">
+  <div class="card">
+    <h4>/ 首页（Server Component）</h4>
+    <p>静态展示页，SSG 预渲染。包含 Hero、Skills、Projects、Timeline、CTA 五个组件区块。纯展示，不请求后端。</p>
+  </div>
+  <div class="card">
+    <h4>/chat 对话页（Client Component）</h4>
+    <p>交互式聊天界面。标记为 <code>"use client"</code>，使用 <code>useState</code> 管理消息列表，通过 <strong>SSE 流</strong>实时接收 AI 回复。</p>
+  </div>
+</div>
+
+<h3>聊天的数据流（前端视角）</h3>
+<div class="flow">
+  <span class="flow-step">用户输入问题</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">fetch POST /api/chat</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">ReadableStream 读取</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">逐 token 追加到 state</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">React 重新渲染</span>
+</div>
+
+<div class="card card-accent">
+<h4>关键代码：流式聊天（api.ts）</h4>
+<pre><code>// 用 fetch + ReadableStream 实现 SSE 消费
+const reader = response.body?.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+
+  buffer += decoder.decode(value, { stream: true });
+  // 按 "data: {...}\n\n" 格式解析每个事件
+  for (const line of lines) {
+    if (line.startsWith("data: ")) {
+      const parsed = JSON.parse(line.slice(6));
+      yield parsed; // { type: "token", data: "你" }
+    }
+  }
+}</code></pre>
+<p>这就是前端实现"打字机效果"的核心：<strong>不是 WebSocket</strong>，而是 SSE（Server-Sent Events）。后端每生成一个 token 就推一条数据，前端用 <code>AsyncGenerator</code> 逐条消费，追加到 React state 触发重新渲染。</p>
+</div>
+
+<div class="tip">类比前端概念：SSE 就像你用 <code>EventSource</code> 监听服务器推送，只不过这里手动用 <code>ReadableStream</code> 实现了更灵活的解析。跟 WebSocket 的区别是 SSE 是单向的（服务器→客户端），用普通 HTTP 就行。</div>
+
+<h3>Markdown 渲染</h3>
+<p>AI 返回的内容是纯 Markdown 文本。前端用 <code>react-markdown</code> + <code>remark-gfm</code>（GitHub 风格 Markdown）+ <code>rehype-highlight</code>（代码高亮）渲染成 HTML。通过自定义 <code>components</code> 映射（h1/h2/code/table 等），给每个 HTML 元素加上 Tailwind 样式类。</p>
+
+<!-- ====== 3. 后端 ====== -->
+<h2><span class="section-num">03</span>后端架构（重点解释）</h2>
+
+<h3>技术栈</h3>
+<div>
+  <span class="tag tag-green">Python 3.11</span>
+  <span class="tag tag-green">FastAPI</span>
+  <span class="tag tag-green">Uvicorn</span>
+  <span class="tag tag-amber">ChromaDB</span>
+  <span class="tag tag-amber">sentence-transformers</span>
+  <span class="tag tag-rose">DeepSeek API</span>
+  <span class="tag tag-rose">LangChain</span>
+</div>
+
+<h3>用前端的概念来类比</h3>
+<table>
+  <tr><th>后端概念</th><th>前端类比</th><th>说明</th></tr>
+  <tr><td><strong>FastAPI</strong></td><td>Next.js API Routes</td><td>Python 的 Web 框架，类似 Express/Koa，定义 HTTP 路由和处理函数</td></tr>
+  <tr><td><strong>Uvicorn</strong></td><td>next dev / next start</td><td>ASGI 服务器，负责运行 FastAPI 应用，类似 Node.js 运行你的 Next.js</td></tr>
+  <tr><td><strong>Pydantic</strong></td><td>Zod / TypeScript interface</td><td>数据校验和类型定义，请求体/响应体的 schema 定义</td></tr>
+  <tr><td><strong>pip / requirements.txt</strong></td><td>npm / package.json</td><td>Python 的包管理器和依赖声明文件</td></tr>
+  <tr><td><strong>.venv（虚拟环境）</strong></td><td>node_modules</td><td>项目级别的依赖隔离，避免全局冲突</td></tr>
+  <tr><td><strong>.env</strong></td><td>.env.local</td><td>一样的，存环境变量（API Key 等）</td></tr>
+</table>
+
+<h3>后端文件结构</h3>
+<pre><code>backend/
+├── app/
+│   ├── main.py          # 入口文件（类似 Next.js 的 app/layout.tsx）
+│   ├── config.py         # 配置管理（读 .env）
+│   ├── routers/
+│   │   ├── chat.py       # POST /api/chat 路由
+│   │   └── ingest.py     # POST /api/ingest 路由
+│   └── services/
+│       ├── llm.py        # 调用 DeepSeek 大模型
+│       ├── rag.py        # 向量检索（ChromaDB）
+│       ├── embedding.py  # 文本向量化（BGE 模型）
+│       └── ingest.py     # 数据导入（读文件→切片→存库）
+├── data/
+│   ├── canonical-profile.md   # 你的个人档案
+│   └── projects/              # 项目文档
+├── requirements.txt     # Python 依赖（= package.json）
+├── Dockerfile           # 容器化配置
+├── nixpacks.toml        # Belmo/Railway 部署配置
+└── .env                 # 环境变量</code></pre>
+
+<h3>核心流程：一次聊天请求的完整旅程</h3>
+
+<div class="card card-accent">
+<h4>Step 1：路由接收请求（routers/chat.py）</h4>
+<p>前端 POST <code>{ messages: [...], stream: true }</code> 到 <code>/api/chat</code>。FastAPI 用 Pydantic 模型自动校验请求格式（就像 Zod 验证前端表单一样）。</p>
+</div>
+
+<div class="card card-accent">
+<h4>Step 2：RAG 检索（services/rag.py）</h4>
+<p>取出用户最新一条消息，去 ChromaDB 向量数据库里做<strong>语义搜索</strong>：</p>
+<ol>
+  <li>把问题文本通过 <strong>BGE 模型</strong>转成一个 512 维的数字向量（Embedding）</li>
+  <li>在 ChromaDB 中找到<strong>余弦相似度最高</strong>的 5 段文档片段</li>
+  <li>这些片段可能来自你的简历、项目 README、面试题等</li>
+</ol>
+<p class="compare">类比：想象一个<strong>超级搜索引擎</strong>，不是按关键词匹配，而是按"语义"找最相关的内容。问"你做过什么项目"会找到项目经历，而不是仅仅包含"项目"二字的段落。</p>
+</div>
+
+<div class="card card-accent">
+<h4>Step 3：构建 Prompt（services/llm.py）</h4>
+<p>把检索到的文档片段拼接成"参考资料"，加上预设的<strong>系统提示词（System Prompt）</strong>，一起发给 DeepSeek：</p>
+<pre><code>messages = [
+  {
+    "role": "system",
+    "content": "你是蒋毅的 AI 数字分身..." + 检索到的参考资料
+  },
+  { "role": "user", "content": "你做过哪些项目？" }
+]</code></pre>
+<p>System Prompt 里定义了 AI 的人设（31岁、大前端工程师、扇贝技术主管等）和回答规则（第一人称、不编造、用 Markdown 格式等）。</p>
+</div>
+
+<div class="card card-accent">
+<h4>Step 4：流式生成（DeepSeek API → SSE）</h4>
+<p>调用 DeepSeek 的 Chat Completion API（<strong>跟 OpenAI API 格式完全一样</strong>），设置 <code>stream=True</code>。DeepSeek 边思考边一个 token 一个 token 地返回，后端每收到一个就包装成 SSE 事件推给前端：</p>
+<pre><code>async for chunk in stream:
+    token = chunk.choices[0].delta.content
+    yield f"data: {json.dumps({'type': 'token', 'data': token})}\n\n"</code></pre>
+</div>
+
+<!-- ====== 4. RAG 核心概念 ====== -->
+<h2><span class="section-num">04</span>RAG 是什么？（核心 AI 概念）</h2>
+
+<p><strong>RAG = Retrieval-Augmented Generation</strong>（检索增强生成）</p>
+
+<div class="diagram">没有 RAG:
+  用户: "你做过什么项目？"
+    → 直接问 DeepSeek
+    → DeepSeek 瞎编（它不知道蒋毅是谁）
+
+有 RAG:
+  用户: "你做过什么项目？"
+    → 先从知识库检索相关文档片段
+    → 把文档片段 + 问题一起发给 DeepSeek
+    → DeepSeek 基于真实资料回答（不编造）</div>
+
+<p>简单说：<strong>RAG 就是给 AI 开卷考试</strong>。AI 本身不知道你的信息，但你把相关资料"塞"给它，它就能基于这些资料回答。</p>
+
+<h3>知识库是怎么建的？（数据导入流程）</h3>
+<div class="flow">
+  <span class="flow-step">简历/README.md</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">读取文件内容</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">切成 500 字的片段</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">BGE 模型转成向量</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">存入 ChromaDB</span>
+</div>
+
+<div class="card">
+<h4>为什么要切片？</h4>
+<p>大模型有上下文长度限制（DeepSeek 约 64K tokens），不能把所有文档一股脑塞进去。所以先切成小片段，<strong>每次只检索最相关的 5 段</strong>，既省 token 又精准。</p>
+<h4>为什么要转成向量？</h4>
+<p>向量是一串数字（如 [0.12, -0.34, 0.56, ...]），可以用数学方法计算两段文本的"语义距离"。比如"React 前端开发"和"Web 前端工程师"的向量会很接近，但和"厨师招聘"的向量很远。</p>
+</div>
+
+<!-- ====== 5. 关键技术组件 ====== -->
+<h2><span class="section-num">05</span>关键技术组件详解</h2>
+
+<div class="grid-2">
+  <div class="card">
+    <h4>ChromaDB <span class="tag tag-amber">向量数据库</span></h4>
+    <p>类似 SQLite 之于关系型数据库——轻量级、嵌入式、文件存储。存的不是表格行列，而是<strong>向量+原文+元数据</strong>。查询方式不是 SQL，而是"给我一个向量，找最近的 N 个"。</p>
+    <p>数据存在 <code>./chroma_db/</code> 文件夹里，不需要单独启动数据库服务。</p>
+  </div>
+  <div class="card">
+    <h4>BGE-small-zh <span class="tag tag-amber">Embedding 模型</span></h4>
+    <p>北京智源研究院（BAAI）出的中文向量模型，专门把中文文本转成 512 维向量。"small" 版本只有 ~100MB，可以在 CPU 上运行，不需要 GPU。</p>
+    <p>这个模型<strong>在后端本地运行</strong>，不调用任何 API，所以免费且无延迟。</p>
+  </div>
+  <div class="card">
+    <h4>DeepSeek API <span class="tag tag-rose">大语言模型</span></h4>
+    <p>国产大模型，API 接口<strong>兼容 OpenAI 格式</strong>，所以代码里直接用 OpenAI 的 Python SDK（<code>AsyncOpenAI</code>），只是把 <code>base_url</code> 改成了 DeepSeek 的地址。</p>
+    <p>价格很便宜（约 ¥1/百万 token），个人项目几乎不花钱。</p>
+  </div>
+  <div class="card">
+    <h4>LangChain <span class="tag tag-green">AI 工具链</span></h4>
+    <p>本项目只用了它的 <code>RecursiveCharacterTextSplitter</code>——一个智能文本分割器，会按段落→句子→字符的优先级切片，保证每片语义完整。</p>
+    <p>类比前端：就像 <code>lodash.chunk()</code>，但更聪明。</p>
+  </div>
+</div>
+
+<!-- ====== 6. 开发启动 ====== -->
+<h2><span class="section-num">06</span>本地开发怎么跑</h2>
+
+<div class="grid-2">
+  <div class="card">
+    <h4>前端（你会的）</h4>
+<pre><code>cd frontend
+npm install
+npm run dev
+# → http://localhost:3000</code></pre>
+    <p>标准 Next.js 开发流程，Tailwind 热更新，没什么特别的。</p>
+  </div>
+  <div class="card">
+    <h4>后端（新东西）</h4>
+<pre><code>cd backend
+python -m venv .venv        # 创建虚拟环境（≈ 独立的 node_modules）
+source .venv/bin/activate   # 激活虚拟环境
+pip install -r requirements.txt  # 安装依赖（≈ npm install）
+uvicorn app.main:app --reload    # 启动开发服务器
+# → http://localhost:8000</code></pre>
+    <p><code>--reload</code> 相当于 nodemon，改代码自动重启。</p>
+  </div>
+</div>
+
+<div class="tip">后端首次启动会自动执行数据导入（ingest），加载你的简历和项目文档到 ChromaDB。之后重启不会重复导入，除非手动调用 <code>POST /api/ingest</code>。</div>
+
+<!-- ====== 7. 部署 ====== -->
+<h2><span class="section-num">07</span>线上部署架构</h2>
+
+<div class="diagram">┌────────────────────┐         ┌─────────────────────┐
+│   Vercel           │  HTTP   │   Belmo             │
+│   (前端)           │ ──────→ │   (后端)            │
+│                    │         │                     │
+│  Next.js SSG/SSR   │         │  FastAPI + Python   │
+│  全球 CDN 分发     │         │  Docker 容器运行     │
+│  自动 HTTPS        │         │  自动 HTTPS          │
+│                    │         │                     │
+│  环境变量:          │         │  环境变量:           │
+│  NEXT_PUBLIC_API_  │         │  DEEPSEEK_API_KEY   │
+│  URL=belmo域名     │         │  FRONTEND_URL=      │
+│                    │         │  vercel域名          │
+└────────────────────┘         └─────────────────────┘
+     ▲                              │
+     │                              ▼
+     │                         ┌──────────┐
+  GitHub 仓库                  │ DeepSeek │
+  MinosJ/jiangyi-ai           │ 云端 API  │
+  推送后自动部署                └──────────┘</code></pre></div>
+
+<h3>前端部署（Vercel）</h3>
+<p>跟你部署普通 Next.js 项目一样：连接 GitHub 仓库 → Vercel 自动检测 Next.js → 每次 push 自动构建和部署。唯一的区别是需要设置 <code>NEXT_PUBLIC_API_URL</code> 环境变量指向后端地址。</p>
+
+<h3>后端部署（Belmo）</h3>
+<p>Belmo 是一个 PaaS 平台（类似 Heroku），支持从 GitHub 自动部署：</p>
+<ol>
+  <li><strong>Nixpacks 自动检测</strong>：发现 <code>requirements.txt</code>，识别为 Python 项目</li>
+  <li><strong>构建阶段</strong>：创建虚拟环境、安装所有 Python 依赖（包括 PyTorch、sentence-transformers 等）</li>
+  <li><strong>运行阶段</strong>：执行 <code>uvicorn app.main:app</code> 启动 FastAPI 服务</li>
+  <li><strong>启动后自动 ingest</strong>：通过 <code>lifespan</code> 钩子在后台加载知识库数据</li>
+</ol>
+
+<div class="card">
+<h4>nixpacks.toml 的作用</h4>
+<p>类似于 <code>vercel.json</code> 或 <code>netlify.toml</code>——告诉部署平台怎么构建和启动你的应用。关键配置是<strong>强制安装 CPU 版 PyTorch</strong>（默认会装 GPU 版，3GB+，免费服务器装不下）。</p>
+<pre><code>[phases.install]
+cmds = [
+  "pip install torch --index-url https://download.pytorch.org/whl/cpu && pip install -r requirements.txt"
+]</code></pre>
+</div>
+
+<!-- ====== 8. CORS ====== -->
+<h2><span class="section-num">08</span>前后端通信：CORS 和跨域</h2>
+
+<p>因为前端（vercel.app）和后端（belmo.uk）域名不同，浏览器会触发<strong>跨域限制</strong>。后端通过 FastAPI 的 CORS 中间件解决：</p>
+
+<pre><code>app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",           # 本地开发
+        os.getenv("FRONTEND_URL"),         # 线上前端域名
+    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)</code></pre>
+
+<p>这跟 Next.js API Routes 里设置 <code>Access-Control-Allow-Origin</code> 响应头是一回事，只是 FastAPI 用中间件统一处理了。</p>
+
+<!-- ====== 9. 对比 ====== -->
+<h2><span class="section-num">09</span>前后端技术对照表</h2>
+
+<table>
+  <tr><th>维度</th><th>前端 (Next.js)</th><th>后端 (FastAPI)</th></tr>
+  <tr><td>语言</td><td>TypeScript</td><td>Python</td></tr>
+  <tr><td>框架</td><td>Next.js 16 (React 19)</td><td>FastAPI 0.115</td></tr>
+  <tr><td>运行时</td><td>Node.js 22</td><td>Python 3.11 + Uvicorn</td></tr>
+  <tr><td>包管理</td><td>npm + package.json</td><td>pip + requirements.txt</td></tr>
+  <tr><td>依赖目录</td><td>node_modules/</td><td>.venv/</td></tr>
+  <tr><td>类型校验</td><td>TypeScript + Zod</td><td>Python Type Hints + Pydantic</td></tr>
+  <tr><td>路由定义</td><td>文件系统路由</td><td>装饰器 @router.post("/chat")</td></tr>
+  <tr><td>环境变量</td><td>.env.local</td><td>.env</td></tr>
+  <tr><td>开发服务器</td><td>next dev (热更新)</td><td>uvicorn --reload (热重载)</td></tr>
+  <tr><td>部署平台</td><td>Vercel (免费)</td><td>Belmo (免费 Starter)</td></tr>
+  <tr><td>容器化</td><td>不需要 (Vercel 托管)</td><td>Dockerfile / Nixpacks</td></tr>
+  <tr><td>CI/CD</td><td>Git push → 自动构建</td><td>Git push → 自动构建</td></tr>
+</table>
+
+<!-- ====== 10. 总结 ====== -->
+<h2><span class="section-num">10</span>一句话总结每个文件在做什么</h2>
+
+<table>
+  <tr><th>文件</th><th>职责</th></tr>
+  <tr><td><code>frontend/src/lib/api.ts</code></td><td>封装 fetch 请求，消费 SSE 流，是前后端通信的桥梁</td></tr>
+  <tr><td><code>frontend/src/app/chat/page.tsx</code></td><td>聊天界面的状态管理和 UI 渲染，是用户交互的核心</td></tr>
+  <tr><td><code>backend/app/main.py</code></td><td>FastAPI 入口，注册路由、CORS、启动时自动 ingest</td></tr>
+  <tr><td><code>backend/app/routers/chat.py</code></td><td>处理 /api/chat 请求：检索→拼 prompt→调 LLM→返回 SSE</td></tr>
+  <tr><td><code>backend/app/services/rag.py</code></td><td>管理 ChromaDB，执行向量检索，构建上下文</td></tr>
+  <tr><td><code>backend/app/services/llm.py</code></td><td>封装 DeepSeek API 调用，定义 AI 人设 prompt</td></tr>
+  <tr><td><code>backend/app/services/embedding.py</code></td><td>加载 BGE 模型，把文本转成 512 维向量</td></tr>
+  <tr><td><code>backend/app/services/ingest.py</code></td><td>读文件（MD/PDF/HTML）→切片→向量化→存 ChromaDB</td></tr>
+  <tr><td><code>backend/app/config.py</code></td><td>集中管理所有配置项，从 .env 读取</td></tr>
+</table>
+
+<div class="tip" style="margin-top: 32px;">
+  作为前端工程师，你已经掌握了这个项目 60% 的知识（React、TypeScript、SSE、部署）。后端的核心增量知识就三块：<strong>FastAPI（≈ Express）</strong>、<strong>向量数据库（≈ 语义搜索引擎）</strong>、<strong>LLM API 调用（≈ 调第三方 API）</strong>。把它们理解为前端世界的对应物，上手会非常快。
+</div>
+
+</div>
+</body>
+</html>

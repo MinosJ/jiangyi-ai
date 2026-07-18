@@ -2,14 +2,20 @@ import chromadb
 from chromadb.config import Settings as ChromaSettings
 from app.config import get_settings
 from app.services.embedding import get_embedding, get_embeddings
-from pathlib import Path
 
 settings = get_settings()
 
-chroma_client = chromadb.PersistentClient(
-    path=settings.chroma_persist_dir,
-    settings=ChromaSettings(anonymized_telemetry=False),
-)
+_chroma_settings = ChromaSettings(anonymized_telemetry=False)
+
+try:
+    chroma_client = chromadb.PersistentClient(
+        path=settings.chroma_persist_dir,
+        settings=_chroma_settings,
+    )
+    print(f"[chromadb] Using persistent storage: {settings.chroma_persist_dir}")
+except Exception:
+    chroma_client = chromadb.EphemeralClient(settings=_chroma_settings)
+    print("[chromadb] Filesystem read-only, using in-memory storage")
 
 
 def get_collection():
@@ -20,7 +26,7 @@ def get_collection():
 
 
 async def query_knowledge(question: str, top_k: int = None) -> list[dict]:
-    """Query the knowledge base and return relevant document chunks with metadata."""
+    """Query the knowledge base with DeepSeek embedding."""
     if top_k is None:
         top_k = settings.retrieval_top_k
 
@@ -65,7 +71,7 @@ async def add_documents(
     metadatas: list[dict],
     ids: list[str],
 ):
-    """Add document chunks to the knowledge base."""
+    """Add document chunks to the knowledge base with DeepSeek embeddings."""
     collection = get_collection()
     embeddings = await get_embeddings(texts)
     collection.add(
