@@ -2,10 +2,9 @@
 nixPkgs = ["python311", "gcc"]
 
 [phases.install]
-cmds = ["cd backend && pip install -r requirements.txt"]
-
-[phases.build]
-cmds = ["echo 'Build complete'"]
+cmds = [
+  "cd backend && python -m venv /opt/venv && . /opt/venv/bin/activate && pip install torch --index-url https://download.pytorch.org/whl/cpu && pip install -r requirements.txt"
+]
 
 [start]
-cmd = "cd backend && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+cmd = "cd backend && /opt/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
