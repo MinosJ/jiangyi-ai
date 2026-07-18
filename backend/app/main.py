@@ -10,18 +10,28 @@ from app.routers import chat, ingest
 settings = get_settings()
 
 
+async def _background_ingest():
+    """Run ingest in background so the server can pass health checks immediately."""
+    await asyncio.sleep(2)
+    try:
+        from app.services.rag import get_collection
+        collection = get_collection()
+        if collection.count() == 0:
+            print("[startup] Knowledge base empty, auto-ingesting...")
+            from app.services.ingest import ingest_all_data
+            count = await ingest_all_data()
+            print(f"[startup] Ingested {count} chunks")
+        else:
+            print(f"[startup] Knowledge base has {collection.count()} chunks")
+    except Exception as e:
+        print(f"[startup] Ingest error: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from app.services.rag import get_collection
-    collection = get_collection()
-    if collection.count() == 0:
-        print("[startup] Knowledge base empty, auto-ingesting...")
-        from app.services.ingest import ingest_all_data
-        count = await ingest_all_data()
-        print(f"[startup] Ingested {count} chunks")
-    else:
-        print(f"[startup] Knowledge base has {collection.count()} chunks")
+    task = asyncio.create_task(_background_ingest())
     yield
+    task.cancel()
 
 
 app = FastAPI(
