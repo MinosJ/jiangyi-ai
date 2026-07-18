@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: jiangyi-ai-backend
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_BASE_URL
+        value: https://api.deepseek.com
+      - key: DEEPSEEK_CHAT_MODEL
+        value: deepseek-chat
+      - key: CHROMA_PERSIST_DIR
+        value: ./chroma_db
+      - key: DATA_DIR
+        value: ./data
+    disk:
+      name: chroma-data
+      mountPath: /app/chroma_db
+      sizeGB: 1
