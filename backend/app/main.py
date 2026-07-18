@@ -47,11 +47,12 @@ allowed_origins = [
 ]
 extra_origin = os.getenv("FRONTEND_URL")
 if extra_origin:
-    allowed_origins.append(extra_origin)
+    allowed_origins.append(extra_origin.rstrip("/"))
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
