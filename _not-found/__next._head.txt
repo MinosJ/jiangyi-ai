@@ -1,0 +1,6 @@
+1:"$Sreact.fragment"
+2:I[97367,["/jiangyi-ai/_next/static/chunks/05-c3ty_6dwfk.js","/jiangyi-ai/_next/static/chunks/2im7c515bo69p.js"],"ViewportBoundary"]
+3:I[97367,["/jiangyi-ai/_next/static/chunks/05-c3ty_6dwfk.js","/jiangyi-ai/_next/static/chunks/2im7c515bo69p.js"],"MetadataBoundary"]
+4:"$Sreact.suspense"
+5:I[27201,["/jiangyi-ai/_next/static/chunks/05-c3ty_6dwfk.js","/jiangyi-ai/_next/static/chunks/2im7c515bo69p.js"],"IconMark"]
+0:{"rsc":["$","$1","h",{"children":[["$","meta",null,{"name":"robots","content":"noindex"}],["$","$L2",null,{"children":[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}]]}],["$","div",null,{"hidden":true,"children":["$","$L3",null,{"children":["$","$4",null,{"name":"Next.Metadata","children":[["$","title","0",{"children":"蒋毅 | 大前端工程师 - AI 数字分身"}],["$","meta","1",{"name":"description","content":"通过 AI 对话了解蒋毅的技术能力、项目经历和个人特质。10年大前端经验，擅长 React、Next.js、iOS、Flutter、AI Agent。"}],["$","link","2",{"rel":"icon","href":"/jiangyi-ai/favicon.ico?favicon.2vob68tjqpejf.ico","sizes":"256x256","type":"image/x-icon"}],["$","$L5","3",{}]]}]}]}],["$","meta",null,{"name":"next-size-adjust","content":""}]]}],"isPartial":false,"staleTime":300,"varyParams":null,"buildId":"2YWuK38v6IOD2cVTy1wi8"}
